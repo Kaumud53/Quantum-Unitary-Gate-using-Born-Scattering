@@ -89,7 +89,3 @@ If you use this work, please cite:
 ## Acknowledgements
 
 The authors thank Prof. K. R. Parthasarathy for invaluable guidance on quantum stochastic differential equations.
-
-## License
-
-*(Add a license, e.g. MIT, CC-BY-4.0, or "All rights reserved" as appropriate.)*
