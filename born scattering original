@@ -1,0 +1,105 @@
+"""
+Faithful Python port of the MATLAB "4.1 CODE" snippet.
+
+Notes on fidelity:
+- MATLAB's `eps` is never reassigned in the original snippet, so it is the
+  built-in machine epsilon (~2.2204e-16), not a user-chosen small parameter.
+  We reproduce that literally via np.finfo(float).eps.
+- MATLAB `conj(X)` is element-wise complex conjugation (NOT conjugate
+  transpose); reproduced with np.conj().
+- MATLAB `norm(matrix)` (no second argument) is the spectral norm (largest
+  singular value); reproduced with np.linalg.norm(X, 2).
+- MATLAB `if M < optimise` on matrices requires *every* element of the
+  logical matrix to be true; reproduced with np.all(...).
+- The original loops for c2 and c3 test `sum_1 < optimise` instead of
+  `sum_2 < optimise` / `sum_3 < optimise` -- this looks like a copy-paste
+  bug in the source. It is reproduced as-is below and flagged, so this
+  function's output matches the MATLAB code line-for-line. A corrected,
+  bug-free version is provided separately in mc_sweep.py.
+"""
+import numpy as np
+
+
+def gautam_matlab_port(N=5, seed=None, verbose=False):
+    rng = np.random.default_rng(seed)
+    eps = np.finfo(float).eps  # MATLAB's built-in `eps`, reused here as-is
+
+    # G(k,r) = exp(i*k*r), k,r = 1..N  (discretized scattering-kernel phase matrix)
+    k_idx, r_idx = np.meshgrid(np.arange(1, N + 1), np.arange(1, N + 1), indexing='ij')
+    G = np.exp(1j * k_idx * r_idx)
+
+    # Three random Hermitian "potential" matrices V1, V2, V3
+    V = []
+    for _ in range(3):
+        A = rng.standard_normal((N, N)) + 1j * rng.standard_normal((N, N))
+        V.append((A + A.conj().T) / 2)
+
+    # Three random real "design" matrices c1, c2, c3 (initial guesses)
+    c = [rng.standard_normal((N, N)) for _ in range(3)]
+
+    I = np.eye(N)
+    W, F, F_conj, Qk = [], [], [], []
+    for kk in range(3):
+        Wk = I + eps * G @ V[kk]
+        Fk = I - Wk
+        W.append(Wk)
+        F.append(Fk)
+        F_conj.append(np.conj(Fk))
+        Qk.append(np.zeros((N, N)))
+
+    Qkm = [[None] * 3 for _ in range(3)]
+    bk = [None] * 3
+    for kk in range(3):
+        bk[kk] = np.imag(np.trace(F_conj[kk] @ G @ V[kk]))
+        for m in range(3):
+            Qkm[kk][m] = np.real(np.trace(G @ V[kk] @ np.conj(G @ V[m])))
+            Qk[kk] = Qk[kk] + Qkm[kk][m]
+
+    optimise = np.ones((N, N))
+
+    # --- k = 1 loop ---
+    while True:
+        sum_1 = Qk[0] @ c[0] + (2 / eps) * bk[0]
+        if np.all(sum_1 < optimise):
+            c1 = c[0]
+            break
+        c[0] = rng.standard_normal((N, N))
+
+    # --- k = 2 loop (bug preserved: tests sum_1, not sum_2) ---
+    while True:
+        sum_2 = Qk[1] @ c[1] + (2 / eps) * bk[1]
+        if np.all(sum_1 < optimise):
+            c2 = c[1]
+            break
+        c[1] = rng.standard_normal((N, N))
+
+    # --- k = 3 loop (bug preserved: tests sum_1, not sum_3) ---
+    while True:
+        sum_3 = Qk[2] @ c[2] + (2 / eps) * bk[2]
+        if np.all(sum_1 < optimise):
+            c3 = c[2]
+            break
+        c[2] = rng.standard_normal((N, N))
+
+    unitary_matrix = rng.standard_normal((3, 3))
+    unitary_matrix = np.abs(0.01 * unitary_matrix)
+    unitary_matrix[0, 0] = np.linalg.norm(np.abs(c1), 2)
+    unitary_matrix[1, 1] = np.linalg.norm(np.abs(c2), 2)
+    unitary_matrix[2, 2] = np.linalg.norm(np.abs(c3), 2)
+
+    M = 1 / (np.linalg.norm(np.abs(c2), 2) + 1)
+    unitary_matrix = M * unitary_matrix
+
+    z = np.abs(c1) + np.abs(c2) + np.abs(c3)
+    x = np.linalg.norm(z, 2)
+    nsr = x / N ** 2
+
+    if verbose:
+        print("unitary_matrix =\n", unitary_matrix)
+        print("nsr =", nsr)
+
+    return unitary_matrix, nsr
+
+
+if __name__ == "__main__":
+    gautam_matlab_port(N=5, seed=0, verbose=True)
